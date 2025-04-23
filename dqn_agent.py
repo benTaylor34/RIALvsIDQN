@@ -6,7 +6,7 @@ from collections import deque
 import random
 
 class DQNAgent:
-    def __init__(self, state_dim, action_dim, lr=0.001, gamma=0.99, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01):
+    def __init__(self, state_dim, action_dim, lr=0.00025, gamma=0.95, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.gamma = gamma
@@ -74,3 +74,5 @@ class DQNAgent:
     
     def load(self, path):
         self.model.load_state_dict(torch.load(path))
+
+print("DQNAgent class defined successfully.")

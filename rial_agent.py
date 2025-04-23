@@ -6,7 +6,7 @@ from collections import deque
 import random
 
 class RIALAgent:
-    def __init__(self, state_dim, action_dim, comm_dim=1, lr=0.001, gamma=0.99, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01):
+    def __init__(self, state_dim, action_dim, comm_dim=1, lr=0.00025, gamma=0.95, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.comm_dim = comm_dim  # 1-bit communication
@@ -90,3 +90,5 @@ class RIALAgent:
     
     def load(self, path):
         self.model.load_state_dict(torch.load(path))
+
+print("RIALAgent class defined successfully.")
