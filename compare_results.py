@@ -8,6 +8,7 @@ from collections import defaultdict
 import pandas as pd
 from pettingzoo.mpe import simple_spread_v3
 from statsmodels.stats.proportion import proportion_confint
+import os 
 
 from RIAL2 import ImprovedRIALAgent, AttentionModule, compute_attention_weighted_messages
 from DQN import DQNAgent
@@ -244,11 +245,12 @@ class MARLExperiment:
         self._generate_plots(df)
     
     def _generate_plots(self, df):
-        """Create all analysis visualizations"""
-        plt.figure(figsize=(18, 12))
-        
-        # 1. Learning curves
-        plt.subplot(2, 3, 1)
+        """Create and save all analysis visualizations separately"""
+        # Create output directory if it doesn't exist
+        os.makedirs("experiment_plots", exist_ok=True)
+
+        # 1. Learning Curve Plot
+        plt.figure(figsize=(10, 6))
         rolling_window = max(1, len(df)//20)
         df['rial_smooth'] = df['rial_reward'].rolling(rolling_window).mean()
         df['dqn_smooth'] = df['dqn_reward'].rolling(rolling_window).mean()
@@ -256,36 +258,52 @@ class MARLExperiment:
         plt.plot(df['dqn_smooth'], label='DQN', color='blue')
         plt.xlabel('Episode')
         plt.ylabel('Smoothed Reward')
-        plt.title('Learning Curves')
+        plt.title('Learning Curves Comparison')
         plt.legend()
         plt.grid(True)
-        
-        # 2. Reward distribution
-        plt.subplot(2, 3, 2)
-        sns.violinplot(data=df[['rial_reward', 'dqn_reward']], palette=['orange', 'blue'])
-        plt.title('Reward Distribution')
+        plt.tight_layout()
+        plt.savefig(os.path.join("experiment_plots", "learning_curves.png"))
+        plt.close()
+
+        # 2. Reward Distribution Plot
+        plt.figure(figsize=(10, 6))
+        sns.violinplot(data=df[['rial_reward', 'dqn_reward']], 
+                        palette=['orange', 'blue'])
+        plt.title('Reward Distribution Comparison')
         plt.ylabel('Reward')
-        
-        # 3. Win rate pie chart
-        plt.subplot(2, 3, 3)
+        plt.tight_layout()
+        plt.savefig(os.path.join("experiment_plots", "reward_distribution.png"))
+        plt.close()
+
+        # 3. Win Rate Plot (Pie Chart)
+        plt.figure(figsize=(8, 8))
         win_counts = df['winner'].value_counts()
         win_counts.plot.pie(
             autopct='%1.1f%%', 
             colors=['orange', 'blue', 'gray'],
-            labels=['RIAL', 'DQN', 'Draw']
+            labels=['RIAL', 'DQN', 'Draw'],
+            startangle=90
         )
         plt.title('Win/Draw Proportions')
         plt.ylabel('')
-        
-        # 4. Behavioral metrics
-        plt.subplot(2, 3, 4)
-        sns.boxplot(data=df[['collisions', 'distance']], palette=['red', 'green'])
-        plt.title('Behavioral Metrics')
-        plt.xticks([0, 1], ['Collisions', 'Avg. Distance'])
-        
-        # 5. Attention analysis (if available)
+        plt.tight_layout()
+        plt.savefig(os.path.join("experiment_plots", "win_rates.png"))
+        plt.close()
+
+        # 4. Behavioral Metrics Plot
+        plt.figure(figsize=(10, 6))
+        sns.boxplot(data=df[['collisions', 'distance']], 
+                    palette=['red', 'green'])
+        plt.title('Behavioral Metrics Comparison')
+        plt.xticks([0, 1], ['Collisions per Episode', 'Average Inter-Agent Distance'])
+        plt.ylabel('Value')
+        plt.tight_layout()
+        plt.savefig(os.path.join("experiment_plots", "behavioral_metrics.png"))
+        plt.close()
+
+        # 5. Attention Analysis Plot (if available)
         if 'attention_entropy' in self.results['rial']:
-            plt.subplot(2, 3, 5)
+            plt.figure(figsize=(10, 6))
             plt.hist(
                 self.results['rial']['attention_entropy'], 
                 bins=20, 
@@ -294,14 +312,13 @@ class MARLExperiment:
             )
             plt.xlabel('Attention Weight Entropy')
             plt.ylabel('Frequency')
-            plt.title('Attention Consistency')
-        
-        plt.tight_layout()
-        plt.savefig('rial_vs_dqn_comparison.png')
-        plt.show()
-        
-        # Save raw data
-        df.to_csv('experiment_results.csv', index=False)
+            plt.title('RIAL Attention Consistency')
+            plt.grid(True)
+            plt.tight_layout()
+            plt.savefig(os.path.join("experiment_plots", "attention_analysis.png"))
+            plt.close()
+
+        print("\nVisualizations saved to 'experiment_plots' directory:")
 
 if __name__ == "__main__":
     experiment = MARLExperiment(
