@@ -7,6 +7,8 @@ import random
 from collections import deque
 from pettingzoo.mpe import simple_spread_v3
 import matplotlib.pyplot as plt
+from pathlib import Path
+
 
 #Soft attention communication module
 class AttentionModule(nn.Module):
@@ -439,24 +441,41 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("/Users/xuzhengyi/Desktop/python/Scc462/rial_training_curve.png")  #Save individual curves
+    plt.savefig("rial_training_curve.png")  #Save individual curves
     plt.show()
     
     #Try to load the DQN results and compare them
+    script_dir = Path(__file__).parent if "__file__" in globals() else Path.cwd()
     try:
         import pickle
-        with open('/Users/xuzhengyi/Desktop/python/Scc462/dqn_rewards.pkl', 'rb') as f:
+        # make the path relative to the script location
+        dqn_rewards_path = script_dir / "dqn_rewards.pkl"
+        output_plot_path = script_dir / "dqn_vs_rial_comparison.png"
+
+        with open(dqn_rewards_path, 'rb') as f:
             dqn_rewards = pickle.load(f)
         
+        # Generate and save the comparison plot
         plot = plot_training_results(dqn_rewards, rial_rewards)
-        plot.savefig('/Users/xuzhengyi/Desktop/python/Scc462/dqn_vs_rial_comparison.png')  #Save the comparison chart
+        plot.savefig(output_plot_path)
         plot.show()
+
+    except FileNotFoundError:
+        print("Error: 'dqn_rewards.pkl' not found in the script's directory!")
     except Exception as e:
-        print("No found!")
-        print("Error message：", e)
+        print(f"An error occurred: {e}")
     
     #Save the RIAL reward array
-    with open('/Users/xuzhengyi/Desktop/python/Scc462/improved_rial_rewards.pkl', 'wb') as f:
-        pickle.dump(rial_rewards, f)
+    try:
+        output_path = script_dir / improved_rial_rewards.pkl
+
+        # Save the rewards array
+        with open(output_path, 'wb') as f:
+            pickle.dump(rial_rewards, f)
+        
+        print(f"Successfully saved RIAL rewards to: {output_path}")
+    
+    except Exception as e:
+        print(f"Failed to save RIAL rewards: {e}")
     
     print("everything will be ok!!!!!!!")
