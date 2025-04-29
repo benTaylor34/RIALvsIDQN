@@ -220,7 +220,7 @@ class MARLExperiment:
         t_stat, p_val = stats.ttest_rel(df['rial_reward'], df['dqn_reward'])
         cohens_d = (rial_mean - dqn_mean) / np.std(df['rial_reward'] - df['dqn_reward'], ddof=1)
         
-        print(f"Reward Comparison:")
+        print(f"\n1.Reward Comparison:")
         print(f"  RIAL Mean: {rial_mean:.2f} ± {np.std(df['rial_reward']):.2f}")
         print(f"  DQN Mean: {dqn_mean:.2f} ± {np.std(df['dqn_reward']):.2f}")
         print(f"  t-test: t={t_stat:.2f}, p={p_val:.4f}")
@@ -234,13 +234,13 @@ class MARLExperiment:
             alpha=0.05,
             method='wilson'
         )
-        print(f"\nWin Rates:")
+        print(f"\n2. Win Rates:")
         print(f"  RIAL Wins: {win_counts.get('rial', 0)} ({rial_win_ci[0]*100:.1f}%-{rial_win_ci[1]*100:.1f}%)")
         print(f"  DQN Wins: {win_counts.get('dqn', 0)}")
         print(f"  Draws: {win_counts.get('draw', 0)}")
         
         # 3. Behavioral metrics
-        print(f"\nBehavioral Metrics:")
+        print(f"\n3. Behavioral Metrics:")
         print(f"  Avg. Collisions/Episode: {np.mean(df['collisions']):.2f} ± {np.std(df['collisions']):.2f}")
         print(f"  Avg. Inter-Agent Distance: {np.mean(df['distance']):.2f} ± {np.std(df['distance']):.2f}")
         
@@ -248,11 +248,13 @@ class MARLExperiment:
             attn_entropy = self.results['rial']['attention_entropy']
             print(f"  Attention Entropy: {np.mean(attn_entropy):.2f} ± {np.std(attn_entropy):.2f}")
         
+        print(f"  Attention-Reward Correlation: {np.corrcoef(attn_entropy, df['rial_reward'])[0,1]:.2f}")
+
         # 4. Bootstrapped confidence intervals
         rial_ci = self.bootstrap_ci(df['rial_reward']) 
         dqn_ci = self.bootstrap_ci(df['dqn_reward'])    
         
-        print(f"\n2. Bootstrapped 95% Confidence Intervals:")
+        print(f"\n4. Bootstrapped 95% Confidence Intervals:")
         print(f"  RIAL: [{rial_ci[0]:.2f}, {rial_ci[1]:.2f}]")
         print(f"  DQN: [{dqn_ci[0]:.2f}, {dqn_ci[1]:.2f}]")
 
@@ -260,35 +262,53 @@ class MARLExperiment:
         rial_q1, rial_q3 = np.percentile(df['rial_reward'], [25, 75])
         dqn_q1, dqn_q3 = np.percentile(df['dqn_reward'], [25, 75])
         
-        print(f"\n3. Interquartile Ranges (IQR):")
+        print(f"\n5. Interquartile Ranges (IQR):")
         print(f"  RIAL: {rial_q3 - rial_q1:.2f} (Q1={rial_q1:.2f}, Q3={rial_q3:.2f})")
         print(f"  DQN: {dqn_q3 - dqn_q1:.2f} (Q1={dqn_q1:.2f}, Q3={dqn_q3:.2f})")
 
         # 6. Convergence Analysis
-        window = max(1, len(df) // 20)  # Smoothing window (5% of episodes)
+        window = max(1, len(df) // 20)  # 5% smoothing window
         rial_smoothed = df['rial_reward'].rolling(window).mean()
         dqn_smoothed = df['dqn_reward'].rolling(window).mean()
-        
-        # Variance reduction
-        early_phase = df['rial_reward'][:len(df)//5]
-        late_phase = df['rial_reward'][-len(df)//5:]
-        var_reduction = 100*(np.var(early_phase) - np.var(late_phase))/np.var(early_phase)
-        
-        # Convergence episodes (90% threshold)
-        threshold = 0.95 * max(rial_smoothed.max(), dqn_smoothed.max())
-        rial_conv = np.argmax(rial_smoothed >= threshold)
-        dqn_conv = np.argmax(dqn_smoothed >= threshold)
-        
-        print(f"\n4. Convergence Analysis:")
-        print(f"  RIAL Variance Reduction: {var_reduction:.1f}%")
-        print(f"  RIAL Converged at Episode: {rial_conv}/{len(df)} (95% threshold)")
-        print(f"  DQN Converged at Episode: {dqn_conv}/{len(df)} (95% threshold)")
+        df['rial_smoothed'] = rial_smoothed
+        df['dqn_smoothed'] = dqn_smoothed
 
+        # Variance reduction (absolute values)
+        early_var = np.var(df['rial_reward'][:len(df)//5])
+        late_var = np.var(df['rial_reward'][-len(df)//5:])
+
+        # Individual convergence thresholds
+        rial_threshold = 0.9 * np.median(df['rial_smoothed'][-300:])  # Last 20% episodes
+        dqn_threshold = 0.9 * np.median(df['dqn_smoothed'][-300:])
+
+        # Find first episode where smoothed reward crosses threshold
+        rial_conv = next((i for i, val in enumerate(df['rial_smoothed']) if val >= rial_threshold), len(df))
+        dqn_conv = next((i for i, val in enumerate(df['dqn_smoothed']) if val >= dqn_threshold), len(df))
+        
+        print(f"\n6. Convergence Analysis:")
+        if early_var > late_var:
+            change = 100 * (early_var - late_var)/early_var
+            print(f"  Variance reduced by {change:.1f}%")
+        else:
+            change = 100 * (late_var - early_var)/early_var
+            print(f"  Variance increased by {change:.1f}%")
+        print(f"  RIAL Converged at Episode: {rial_conv}/{len(df)}")
+        print(f"  DQN Converged at Episode: {dqn_conv}/{len(df)}")
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(df['rial_smoothed'], label='RIAL')
+        plt.plot(df['dqn_smoothed'], label='DQN')
+        plt.axhline(rial_threshold, color='orange', linestyle='--', label='RIAL Threshold')
+        plt.axhline(dqn_threshold, color='blue', linestyle='--', label='DQN Threshold')
+        plt.xlabel('Episode')
+        plt.ylabel('Smoothed Reward')
+        plt.legend()
+        plt.show()
 
         # Generate visualizations
-        self._generate_plots(df, rial_smoothed, dqn_smoothed, threshold)
+        self._generate_plots(df, rial_smoothed, dqn_smoothed, rial_threshold, dqn_threshold)
     
-    def _generate_plots(self, df, rial_smoothed, dqn_smoothed, threshold):
+    def _generate_plots(self, df, rial_smoothed, dqn_smoothed, rial_threshold, dqn_threshold):
         os.makedirs("enhanced_plots", exist_ok=True)
         plt.figure(figsize=(15, 10))
 
@@ -296,9 +316,9 @@ class MARLExperiment:
         plt.subplot(2, 2, 1)
         plt.plot(rial_smoothed, label='RIAL', color='orange')
         plt.plot(dqn_smoothed, label='DQN', color='blue')
-        plt.axhline(threshold, color='gray', linestyle='--', label='90% Threshold')
-        plt.axvline(np.argmax(rial_smoothed >= threshold), color='orange', linestyle=':')
-        plt.axvline(np.argmax(dqn_smoothed >= threshold), color='blue', linestyle=':')
+        #plt.axhline(rial_threshold, color='gray', linestyle='--', label='RIAL Threshold')
+        plt.axvline(np.argmax(rial_smoothed >= rial_threshold), color='orange', linestyle=':')
+        plt.axvline(np.argmax(dqn_smoothed >= dqn_threshold), color='blue', linestyle=':')
         plt.xlabel('Episode')
         plt.ylabel('Smoothed Reward')
         plt.title('Learning Curves with Convergence Markers')
