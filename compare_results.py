@@ -194,6 +194,13 @@ class MARLExperiment:
         if entropies:
             self.results['rial']['attention_entropy'].append(np.mean(entropies))
     
+    @staticmethod
+    def bootstrap_ci(data, n_bootstrap=1000, ci=95):
+        boot_means = [np.mean(np.random.choice(data, size=len(data), replace=True))
+                                for _ in range(n_bootstrap)]
+        return np.percentile(boot_means, [(100-ci)/2, (100+ci)/2])
+
+
     def analyze_results(self):
         """Perform statistical analysis and visualization"""
         print("\n=== Statistical Analysis ===")
@@ -241,84 +248,177 @@ class MARLExperiment:
             attn_entropy = self.results['rial']['attention_entropy']
             print(f"  Attention Entropy: {np.mean(attn_entropy):.2f} ± {np.std(attn_entropy):.2f}")
         
-        # Generate visualizations
-        self._generate_plots(df)
-    
-    def _generate_plots(self, df):
-        """Create and save all analysis visualizations separately"""
-        # Create output directory if it doesn't exist
-        os.makedirs("experiment_plots", exist_ok=True)
+        # 4. Bootstrapped confidence intervals
+        rial_ci = self.bootstrap_ci(df['rial_reward']) 
+        dqn_ci = self.bootstrap_ci(df['dqn_reward'])    
+        
+        print(f"\n2. Bootstrapped 95% Confidence Intervals:")
+        print(f"  RIAL: [{rial_ci[0]:.2f}, {rial_ci[1]:.2f}]")
+        print(f"  DQN: [{dqn_ci[0]:.2f}, {dqn_ci[1]:.2f}]")
 
-        # 1. Learning Curve Plot
-        plt.figure(figsize=(10, 6))
-        rolling_window = max(1, len(df)//20)
-        df['rial_smooth'] = df['rial_reward'].rolling(rolling_window).mean()
-        df['dqn_smooth'] = df['dqn_reward'].rolling(rolling_window).mean()
-        plt.plot(df['rial_smooth'], label='RIAL', color='orange')
-        plt.plot(df['dqn_smooth'], label='DQN', color='blue')
+        # 5. Interquartile Range (IQR)
+        rial_q1, rial_q3 = np.percentile(df['rial_reward'], [25, 75])
+        dqn_q1, dqn_q3 = np.percentile(df['dqn_reward'], [25, 75])
+        
+        print(f"\n3. Interquartile Ranges (IQR):")
+        print(f"  RIAL: {rial_q3 - rial_q1:.2f} (Q1={rial_q1:.2f}, Q3={rial_q3:.2f})")
+        print(f"  DQN: {dqn_q3 - dqn_q1:.2f} (Q1={dqn_q1:.2f}, Q3={dqn_q3:.2f})")
+
+        # 6. Convergence Analysis
+        window = max(1, len(df) // 20)  # Smoothing window (5% of episodes)
+        rial_smoothed = df['rial_reward'].rolling(window).mean()
+        dqn_smoothed = df['dqn_reward'].rolling(window).mean()
+        
+        # Variance reduction
+        early_phase = df['rial_reward'][:len(df)//5]
+        late_phase = df['rial_reward'][-len(df)//5:]
+        var_reduction = 100*(np.var(early_phase) - np.var(late_phase))/np.var(early_phase)
+        
+        # Convergence episodes (90% threshold)
+        threshold = 0.95 * max(rial_smoothed.max(), dqn_smoothed.max())
+        rial_conv = np.argmax(rial_smoothed >= threshold)
+        dqn_conv = np.argmax(dqn_smoothed >= threshold)
+        
+        print(f"\n4. Convergence Analysis:")
+        print(f"  RIAL Variance Reduction: {var_reduction:.1f}%")
+        print(f"  RIAL Converged at Episode: {rial_conv}/{len(df)} (95% threshold)")
+        print(f"  DQN Converged at Episode: {dqn_conv}/{len(df)} (95% threshold)")
+
+
+        # Generate visualizations
+        self._generate_plots(df, rial_smoothed, dqn_smoothed, threshold)
+    
+    def _generate_plots(self, df, rial_smoothed, dqn_smoothed, threshold):
+        os.makedirs("enhanced_plots", exist_ok=True)
+        plt.figure(figsize=(15, 10))
+
+        # --- 1. Learning Curves with Convergence ---
+        plt.subplot(2, 2, 1)
+        plt.plot(rial_smoothed, label='RIAL', color='orange')
+        plt.plot(dqn_smoothed, label='DQN', color='blue')
+        plt.axhline(threshold, color='gray', linestyle='--', label='90% Threshold')
+        plt.axvline(np.argmax(rial_smoothed >= threshold), color='orange', linestyle=':')
+        plt.axvline(np.argmax(dqn_smoothed >= threshold), color='blue', linestyle=':')
         plt.xlabel('Episode')
         plt.ylabel('Smoothed Reward')
-        plt.title('Learning Curves Comparison')
+        plt.title('Learning Curves with Convergence Markers')
         plt.legend()
         plt.grid(True)
-        plt.tight_layout()
-        plt.savefig(os.path.join("experiment_plots", "learning_curves.png"))
-        plt.close()
 
-        # 2. Reward Distribution Plot
-        plt.figure(figsize=(10, 6))
-        sns.violinplot(data=df[['rial_reward', 'dqn_reward']], 
-                        palette=['orange', 'blue'])
-        plt.title('Reward Distribution Comparison')
+        # --- 2. Reward Distribution with IQR ---
+        plt.subplot(2, 2, 2)
+        sns.violinplot(data=df[['rial_reward', 'dqn_reward']], palette=['orange', 'blue'])
+        for i, col in enumerate(['rial_reward', 'dqn_reward']):
+            q1, q3 = np.percentile(df[col], [25, 75])
+            plt.hlines(q1, i-0.3, i+0.3, colors='red', linestyles='dashed')
+            plt.hlines(q3, i-0.3, i+0.3, colors='red', linestyles='dashed')
+        plt.title('Reward Distributions with IQR (Q1-Q3)')
         plt.ylabel('Reward')
+
+        # --- 3. Bootstrapped CIs ---
+        plt.subplot(2, 2, 3)
+        algorithms = ['RIAL', 'DQN']
+        means = [np.mean(df['rial_reward']), np.mean(df['dqn_reward'])]
+        cis = [self.bootstrap_ci(df['rial_reward']), self.bootstrap_ci(df['dqn_reward'])]
+        colors = ['orange', 'blue']
+        
+        for algo, mean, ci, color in zip(algorithms, means, cis, colors):
+            plt.errorbar(x=algo, y=mean, 
+                        yerr=[[mean - ci[0]], [ci[1] - mean]],
+                        fmt='o', capsize=5, color=color, label=algo)
+        
+        plt.title('Bootstrapped 95% CIs for Mean Rewards')
+        plt.ylabel('Mean Reward')
+        plt.legend()
+
+        # --- 4. Variance Reduction ---
+        plt.subplot(2, 2, 4)
+        early_var = np.var(df['rial_reward'][:len(df)//5])
+        late_var = np.var(df['rial_reward'][-len(df)//5:])
+        plt.bar(['Early Phase', 'Late Phase'], [early_var, late_var], color=['red', 'green'])
+        plt.title('RIAL Reward Variance Reduction')
+        plt.ylabel('Variance')
+
         plt.tight_layout()
-        plt.savefig(os.path.join("experiment_plots", "reward_distribution.png"))
+        plt.savefig(os.path.join("enhanced_plots", "combined_metrics.png"))
         plt.close()
 
-        # 3. Win Rate Plot (Pie Chart)
-        plt.figure(figsize=(8, 8))
-        win_counts = df['winner'].value_counts()
-        win_counts.plot.pie(
-            autopct='%1.1f%%', 
-            colors=['orange', 'blue', 'gray'],
-            labels=['RIAL', 'DQN', 'Draw'],
-            startangle=90
-        )
-        plt.title('Win/Draw Proportions')
-        plt.ylabel('')
-        plt.tight_layout()
-        plt.savefig(os.path.join("experiment_plots", "win_rates.png"))
-        plt.close()
+        print("\nEnhanced visualizations saved to 'enhanced_plots' directory")
+        
+        # """Create and save all analysis visualizations separately"""
+        # # Create output directory if it doesn't exist
+        # os.makedirs("experiment_plots", exist_ok=True)
 
-        # 4. Behavioral Metrics Plot
-        plt.figure(figsize=(10, 6))
-        sns.boxplot(data=df[['collisions', 'distance']], 
-                    palette=['red', 'green'])
-        plt.title('Behavioral Metrics Comparison')
-        plt.xticks([0, 1], ['Collisions per Episode', 'Average Inter-Agent Distance'])
-        plt.ylabel('Value')
-        plt.tight_layout()
-        plt.savefig(os.path.join("experiment_plots", "behavioral_metrics.png"))
-        plt.close()
+        # # 1. Learning Curve Plot
+        # plt.figure(figsize=(10, 6))
+        # rolling_window = max(1, len(df)//20)
+        # df['rial_smooth'] = df['rial_reward'].rolling(rolling_window).mean()
+        # df['dqn_smooth'] = df['dqn_reward'].rolling(rolling_window).mean()
+        # plt.plot(df['rial_smooth'], label='RIAL', color='orange')
+        # plt.plot(df['dqn_smooth'], label='DQN', color='blue')
+        # plt.xlabel('Episode')
+        # plt.ylabel('Smoothed Reward')
+        # plt.title('Learning Curves Comparison')
+        # plt.legend()
+        # plt.grid(True)
+        # plt.tight_layout()
+        # plt.savefig(os.path.join("experiment_plots", "learning_curves.png"))
+        # plt.close()
 
-        # 5. Attention Analysis Plot (if available)
-        if 'attention_entropy' in self.results['rial']:
-            plt.figure(figsize=(10, 6))
-            plt.hist(
-                self.results['rial']['attention_entropy'], 
-                bins=20, 
-                color='purple', 
-                alpha=0.7
-            )
-            plt.xlabel('Attention Weight Entropy')
-            plt.ylabel('Frequency')
-            plt.title('RIAL Attention Consistency')
-            plt.grid(True)
-            plt.tight_layout()
-            plt.savefig(os.path.join("experiment_plots", "attention_analysis.png"))
-            plt.close()
+        # # 2. Reward Distribution Plot
+        # plt.figure(figsize=(10, 6))
+        # sns.violinplot(data=df[['rial_reward', 'dqn_reward']], 
+        #                 palette=['orange', 'blue'])
+        # plt.title('Reward Distribution Comparison')
+        # plt.ylabel('Reward')
+        # plt.tight_layout()
+        # plt.savefig(os.path.join("experiment_plots", "reward_distribution.png"))
+        # plt.close()
 
-        print("\nVisualizations saved to 'experiment_plots' directory:")
+        # # 3. Win Rate Plot (Pie Chart)
+        # plt.figure(figsize=(8, 8))
+        # win_counts = df['winner'].value_counts()
+        # win_counts.plot.pie(
+        #     autopct='%1.1f%%', 
+        #     colors=['orange', 'blue', 'gray'],
+        #     labels=['RIAL', 'DQN', 'Draw'],
+        #     startangle=90
+        # )
+        # plt.title('Win/Draw Proportions')
+        # plt.ylabel('')
+        # plt.tight_layout()
+        # plt.savefig(os.path.join("experiment_plots", "win_rates.png"))
+        # plt.close()
+
+        # # 4. Behavioral Metrics Plot
+        # plt.figure(figsize=(10, 6))
+        # sns.boxplot(data=df[['collisions', 'distance']], 
+        #             palette=['red', 'green'])
+        # plt.title('Behavioral Metrics Comparison')
+        # plt.xticks([0, 1], ['Collisions per Episode', 'Average Inter-Agent Distance'])
+        # plt.ylabel('Value')
+        # plt.tight_layout()
+        # plt.savefig(os.path.join("experiment_plots", "behavioral_metrics.png"))
+        # plt.close()
+
+        # # 5. Attention Analysis Plot (if available)
+        # if 'attention_entropy' in self.results['rial']:
+        #     plt.figure(figsize=(10, 6))
+        #     plt.hist(
+        #         self.results['rial']['attention_entropy'], 
+        #         bins=20, 
+        #         color='purple', 
+        #         alpha=0.7
+        #     )
+        #     plt.xlabel('Attention Weight Entropy')
+        #     plt.ylabel('Frequency')
+        #     plt.title('RIAL Attention Consistency')
+        #     plt.grid(True)
+        #     plt.tight_layout()
+        #     plt.savefig(os.path.join("experiment_plots", "attention_analysis.png"))
+        #     plt.close()
+
+        # print("\nVisualizations saved to 'experiment_plots' directory:")
 
 if __name__ == "__main__":
     experiment = MARLExperiment(
